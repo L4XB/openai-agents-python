@@ -294,6 +294,8 @@ class BlaxelSandboxSessionState(SandboxSessionState):
     sandbox_url: str | None = None
     exposed_port_public: bool = True
     exposed_port_url_ttl_s: int = 3600
+    # Appended last: BlaxelSandboxSessionState field order is a compatibility contract.
+    ports: tuple[dict[str, Any], ...] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1105,7 +1107,6 @@ class BlaxelSandboxClient(BaseSandboxClient["BlaxelSandboxClientOptions"]):
             env_vars=options.env_vars,
             labels=options.labels,
             ttl=options.ttl,
-            manifest=manifest,
         )
         blaxel_sandbox = await SandboxInstance.create_if_not_exists(create_config)
 
@@ -1119,6 +1120,7 @@ class BlaxelSandboxClient(BaseSandboxClient["BlaxelSandboxClientOptions"]):
             image=options.image,
             memory=options.memory,
             region=options.region,
+            ports=options.ports,
             base_env_vars=dict(options.env_vars or {}),
             labels=dict(options.labels or {}),
             ttl=options.ttl,
@@ -1182,6 +1184,7 @@ class BlaxelSandboxClient(BaseSandboxClient["BlaxelSandboxClientOptions"]):
                 image=state.image,
                 memory=state.memory,
                 region=state.region,
+                ports=state.ports,
                 env_vars=state.base_env_vars or None,
                 labels=state.labels or None,
                 ttl=state.ttl,
@@ -1216,7 +1219,6 @@ def _build_create_config(
     env_vars: dict[str, str] | None = None,
     labels: dict[str, str] | None = None,
     ttl: str | None = None,
-    manifest: Manifest | None = None,
 ) -> dict[str, Any]:
     """Build the dict config accepted by ``SandboxInstance.create_if_not_exists``."""
     config: dict[str, Any] = {"name": name}

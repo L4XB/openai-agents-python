@@ -853,6 +853,71 @@ class TestBlaxelSandboxClient:
         assert session is not None
 
     @pytest.mark.asyncio
+    async def test_resume_recreates_with_the_ports_it_was_created_with(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``resume`` promises "a fresh one is created with the same configuration".
+
+        ``ports`` was the one create option that never reached the session state, so
+        a sandbox rebuilt after its own expiry came back without the ports the caller
+        asked for.
+        """
+        from agents.extensions.sandbox.blaxel import sandbox as mod
+
+        configs: list[dict[str, Any]] = []
+
+        class _RecordingSandboxInstance(_FakeSandboxInstance):
+            @classmethod
+            async def create_if_not_exists(cls, config: dict[str, Any]) -> _FakeSandboxInstance:
+                configs.append(config)
+                return await _FakeSandboxInstance.create_if_not_exists(config)
+
+        monkeypatch.setattr(mod, "_import_blaxel_sdk", lambda: _RecordingSandboxInstance)
+
+        ports = ({"target": 3000, "protocol": "HTTP"},)
+        client = mod.BlaxelSandboxClient(token="test-token")
+        session = await client.create(
+            options=mod.BlaxelSandboxClientOptions(name="ports-sandbox", ports=ports),
+        )
+        assert configs[-1]["ports"] == [{"target": 3000, "protocol": "HTTP"}]
+
+        # A resumed run rebuilds its state from the persisted payload.
+        state = client.deserialize_session_state(client.serialize_session_state(session.state))
+        await client.resume(state)
+
+        assert len(configs) == 2
+        assert configs[-1]["ports"] == [{"target": 3000, "protocol": "HTTP"}]
+
+    @pytest.mark.asyncio
+    async def test_state_without_ports_still_resumes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A payload written before ``ports`` existed carries no key for it."""
+        from agents.extensions.sandbox.blaxel import sandbox as mod
+
+        configs: list[dict[str, Any]] = []
+
+        class _RecordingSandboxInstance(_FakeSandboxInstance):
+            @classmethod
+            async def create_if_not_exists(cls, config: dict[str, Any]) -> _FakeSandboxInstance:
+                configs.append(config)
+                return await _FakeSandboxInstance.create_if_not_exists(config)
+
+        monkeypatch.setattr(mod, "_import_blaxel_sdk", lambda: _RecordingSandboxInstance)
+
+        client = mod.BlaxelSandboxClient(token="test-token")
+        state = client.deserialize_session_state(
+            {
+                "session_id": str(uuid.uuid4()),
+                "manifest": {"root": "/workspace"},
+                "snapshot": {"type": "noop", "id": "test-snap"},
+                "sandbox_name": "legacy-sandbox",
+            }
+        )
+        assert state.ports is None
+
+        await client.resume(state)
+        assert "ports" not in configs[-1]
+
+    @pytest.mark.asyncio
     async def test_deserialize_session_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from agents.extensions.sandbox.blaxel import sandbox as mod
 
